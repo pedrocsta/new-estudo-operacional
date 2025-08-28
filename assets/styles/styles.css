@@ -1,0 +1,136 @@
+/* Retira a margin-bottom negativa dos cards, fazendo o conteúdo interno respeitar o padding. */
+.st-emotion-cache-12n9g3d {
+    margin-bottom: 0px;
+}
+
+div.st-key-st-key-estudo-do-dia > div:first-child {
+    margin-bottom: 0px !important;
+}
+
+div.st-key-st-key-estudo-semanal > div:first-child {
+    margin-bottom: 0px !important;
+}
+
+div.st-key-st-key-streak > div:first-child {
+    margin-bottom: 0px !important;
+}
+
+div.st-key-st-key-painel > div:first-child {
+    margin-bottom: 0px !important;
+}
+
+div.st-key-st-key-meta-de-estudo-semanal > div:first-child {
+    margin-bottom: 0px !important;
+}
+
+.st-key-adicionar-estudos {
+    margin-left: auto;
+}
+
+div[data-testid="stLayoutWrapper"] {
+    margin-left: auto;
+    height: 100%;
+}
+
+.st-key-avatar-button { margin-left: auto; }
+.st-key-avatar-button button{
+    border-radius: 50%; 
+    border: 2px solid #2A2A2A; 
+    cursor: pointer;
+    margin-bottom: 20px;
+    height: 60px;
+    width: 60px;
+}
+
+.button-row {
+    display: flex;
+    justify-content: flex-end; /* alinha à direita */
+    gap: 12px; /* espaço entre botões */
+}
+
+.btn-cancelar, .btn-salvar {
+    justify-content: center;
+    font-weight: 400;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.5rem;
+    min-height: 2.5rem;
+    width: 150px;
+    color: #fff;
+}
+
+/* Botão Cancelar */
+.btn-cancelar {
+    background-color: rgb(26, 26, 26);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-cancelar:hover {
+    background-color: rgba(176, 176, 176, 0.15);
+}
+
+/* Botão Salvar */
+.btn-salvar {
+    background-color: rgb(104, 115, 100);
+    border: 1px solid rgb(104, 115, 100);
+}
+
+.btn-salvar:hover{
+    background-color: rgb(67, 74, 64);
+    border-color: rgb(67, 74, 64);
+}
+
+button[data-testid="stBaseButton-pillsActive"],  button[data-testid="stBaseButton-pills"]{
+    padding: 0.8rem 1.5rem;
+    border-radius: 12px;
+    margin: 5px 0;
+}
+
+div[role="dialog"] > div:nth-of-type(2) {
+    padding: 0rem 1.5rem 1.5rem !important;
+}
+
+div[data-testid="stDateInput"] input{
+    margin-left: auto;
+}
+
+button[data-testid="stBaseButton-primary"][disabled] {
+    background-color: rgba(104, 115, 100, 0.6);
+    border: 1px solid rgba(104, 115, 100, 0.6);
+}
+button[data-testid="stBaseButton-primary"][disabled]:hover {
+    background-color: rgba(104, 115, 100, 0.6);
+    border: 1px solid rgba(104, 115, 100, 0.6);
+}
+
+p {
+    margin: 0px 0px 0rem;
+}
+span[data-testid="stHeaderActionElements"] {
+    display: none;
+}
+
+img, svg {
+    vertical-align: baseline;
+}
+
+.edit-btn{
+    background-color: red;
+    padding: 0;
+    margin: 0;
+}
+
+h2 {
+    min-height: 1.8rem;
+    display: flex;
+    align-items: center;
+}
+
+.st-key-st-key-meta-de-estudo-semanal > div[data-testid="stLayoutWrapper"], 
+.st-key-st-key-painel > div[data-testid="stLayoutWrapper"],
+.st-key-st-key-estudo-do-dia > div[data-testid="stLayoutWrapper"] {
+    height: auto;
+}
+
+.st-key-st-key-painel > div[data-testid="stLayoutWrapper"] > div {
+    gap: 0 !important;
+}
