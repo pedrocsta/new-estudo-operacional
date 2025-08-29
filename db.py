@@ -1,10 +1,9 @@
-# src/data/db.py
 from pathlib import Path
 import sqlite3
 from typing import Optional, Dict, Any
 from utils import fmt_horas
 
-DB_PATH = Path(__file__).resolve().parents[2] / "app.db"
+DB_PATH = Path("studies.db")
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
