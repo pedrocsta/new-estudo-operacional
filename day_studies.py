@@ -98,7 +98,7 @@ def render_day_studies():
             .ds-dot{width:16px;height:16px;border-radius:4px;display:inline-block;flex-shrink:0;}
             .ds-label{white-space:nowrap;}
             .ds-line{flex:1;height:1px;background:#3a3a3a;opacity:.7;margin:0 8px;}
-            .ds-value{color:#EDEDED;font-weight:700;white-space:nowrap;}
+            .ds-value{color:#EDEDED;font-weight:600;white-space:nowrap;}
             .ds-empty-msg{flex:1;text-align:center;font-weight:600;opacity:.8;}
         }
         """

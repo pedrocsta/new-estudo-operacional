@@ -53,6 +53,7 @@ def render_weekly_goal():
             border-radius: 12px;
             border: 1px solid #2a2a2a;
             padding: 10px;
+            text-align: center;
 
             div[data-testid="stHorizontalBlock"] { align-items: center; display: flex;}
 
