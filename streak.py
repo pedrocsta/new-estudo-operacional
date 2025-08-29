@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_extras.stylable_container import stylable_container
 import streamlit.components.v1 as components
-from db import get_study_presence_since_signup
+from db import get_study_presence_since_signup_cached
 import datetime as dt
 
 
@@ -184,7 +184,7 @@ def render_streak():
     if not user:
         return
 
-    presence = get_study_presence_since_signup(user["id"])
+    presence = get_study_presence_since_signup_cached(user["id"])
 
     with stylable_container(
         key="streak",

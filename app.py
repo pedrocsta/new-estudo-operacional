@@ -9,7 +9,7 @@ from auth import render_auth_gate, logout
 from day_studies import render_day_studies
 from weekly_goal import render_weekly_goal
 from weekly_study import render_weekly_study
-from db import get_study_records_by_user, delete_study_record
+from db import get_study_records_by_user_cached, delete_study_record
 
 
 st.set_page_config(
@@ -79,7 +79,7 @@ st.markdown("---")
 st.subheader("Meus Registros de Estudo")
 
 if user:
-    records = get_study_records_by_user(user["id"])
+    records = get_study_records_by_user_cached(user["id"])
     if not records:
         st.info("Nenhum registro encontrado.")
     else:

@@ -1,19 +1,20 @@
-# db.py — versão compatível com PostgreSQL (Supabase Pooler via psycopg v3) e fallback para SQLite
+# db.py — PostgreSQL (Supabase Pooler via psycopg v3) com pool e cache; fallback para SQLite
 from __future__ import annotations
 
 import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 
+import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 # ------------------------------------------------------------------------------
-# Configuração da conexão
-# - Em produção (Streamlit Cloud), use o secrets: DATABASE_URL
-#   Exemplo (Supabase Transaction Pooler, IPv4):
-#   postgresql+psycopg://<user>:<password>@aws-1-sa-east-1.pooler.supabase.com:6543/postgres
-# - Em desenvolvimento, cai para SQLite local.
+# Conexão
+# - Produção (Streamlit Cloud): defina DATABASE_URL nos Secrets
+#   Ex. (Session/Transaction Pooler IPv4):
+#   postgresql+psycopg://<user>:<password>@aws-1-sa-east-1.pooler.supabase.com:5432/postgres
+# - Dev: cai para SQLite local.
 # ------------------------------------------------------------------------------
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///studies.db")
@@ -22,12 +23,18 @@ DB_URL = os.getenv("DATABASE_URL", "sqlite:///studies.db")
 if DB_URL.startswith("postgresql://"):
     DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-engine: Engine = create_engine(DB_URL, pool_pre_ping=True, future=True)
-
+engine: Engine = create_engine(
+    DB_URL,
+    pool_size=5,          # conexões persistentes
+    max_overflow=10,      # conexões extras temporárias
+    pool_timeout=30,      # timeout ao pegar conexão do pool
+    pool_recycle=1800,    # recicla conexões a cada 30min
+    pool_pre_ping=True,   # valida conexão antes de usar
+    future=True,
+)
 
 def _is_sqlite() -> bool:
     return engine.dialect.name == "sqlite"
-
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -37,11 +44,10 @@ def _row_to_dict(row) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     d = dict(row)
-    # Ajuste para Postgres: BYTEA pode vir como memoryview
+    # Em Postgres, BYTEA pode vir como memoryview
     if "password_hash" in d and isinstance(d["password_hash"], memoryview):
         d["password_hash"] = bytes(d["password_hash"])
     return d
-
 
 def _date_to_iso(v) -> Optional[str]:
     """Converte date/datetime/str -> 'YYYY-MM-DD' (string) ou None."""
@@ -49,24 +55,26 @@ def _date_to_iso(v) -> Optional[str]:
         return None
     if isinstance(v, str):
         return v[:10]
-    if isinstance(v, date):  # inclui datetime (subclasse)
+    if isinstance(v, date):  # datetime é subclasse de date
         return v.isoformat()
     try:
-        # fallback: tenta converter para string e cortar
         return str(v)[:10]
     except Exception:
         return None
 
+def _clear_cache():
+    """Limpa o cache de dados (usado após writes)."""
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
 
 # ------------------------------------------------------------------------------
-# Criação de Schema
+# Schema
 # ------------------------------------------------------------------------------
 
 def init_db() -> None:
-    """
-    Cria as tabelas se não existirem.
-    Usa DDL específico para SQLite e PostgreSQL, garantindo portabilidade.
-    """
+    """Cria as tabelas se não existirem (SQLite/Postgres)."""
     if _is_sqlite():
         ddl = [
             """
@@ -118,7 +126,6 @@ def init_db() -> None:
             """,
         ]
     else:
-        # PostgreSQL (Supabase/Neon/etc.)
         ddl = [
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -165,53 +172,58 @@ def init_db() -> None:
             );
             """,
         ]
-
     with engine.begin() as conn:
         for stmt in ddl:
             conn.execute(text(stmt))
-
 
 # ------------------------------------------------------------------------------
 # Users
 # ------------------------------------------------------------------------------
 
 def create_user(first_name: str, last_name: str, email: str, password_hash: bytes) -> int:
-    sql = text("""
+    sql_ret = text("""
         INSERT INTO users (first_name, last_name, email, password_hash)
         VALUES (:fn, :ln, :em, :ph)
         RETURNING id
     """)
     try:
         with engine.begin() as conn:
-            res = conn.execute(sql, {"fn": first_name.strip(), "ln": last_name.strip(),
-                                     "em": email.strip().lower(), "ph": password_hash})
-            row = res.mappings().fetchone()
-            if row and "id" in row:
-                return int(row["id"])
+            row = conn.execute(sql_ret, {
+                "fn": first_name.strip(),
+                "ln": last_name.strip(),
+                "em": email.strip().lower(),
+                "ph": password_hash,
+            }).mappings().fetchone()
+            user_id = int(row["id"]) if row and "id" in row else 0
     except Exception:
         if _is_sqlite():
             with engine.begin() as conn:
                 conn.execute(text("""
                     INSERT INTO users (first_name, last_name, email, password_hash)
                     VALUES (:fn, :ln, :em, :ph)
-                """), {"fn": first_name.strip(), "ln": last_name.strip(),
-                       "em": email.strip().lower(), "ph": password_hash})
+                """), {
+                    "fn": first_name.strip(),
+                    "ln": last_name.strip(),
+                    "em": email.strip().lower(),
+                    "ph": password_hash,
+                })
                 rid = conn.execute(text("SELECT last_insert_rowid() AS id")).mappings().fetchone()
-                return int(rid["id"])
-        raise
-    # fallback
-    with engine.connect() as conn:
-        row = conn.execute(text("SELECT id FROM users WHERE email=:em"),
-                           {"em": email.strip().lower()}).mappings().fetchone()
-        return int(row["id"]) if row else 0
-
+                user_id = int(rid["id"])
+        else:
+            raise
+    if not user_id:
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT id FROM users WHERE email=:em"),
+                               {"em": email.strip().lower()}).mappings().fetchone()
+            user_id = int(row["id"]) if row else 0
+    _clear_cache()
+    return user_id
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with engine.connect() as conn:
         row = conn.execute(text("SELECT * FROM users WHERE email = :em"),
                            {"em": email.strip().lower()}).mappings().fetchone()
         return _row_to_dict(row)
-
 
 def get_user_created_date(user_id: int) -> Optional[str]:
     with engine.connect() as conn:
@@ -220,9 +232,8 @@ def get_user_created_date(user_id: int) -> Optional[str]:
         ), {"uid": int(user_id)}).mappings().fetchone()
         return _date_to_iso(row["created_date"]) if row and row["created_date"] else None
 
-
 # ------------------------------------------------------------------------------
-# Study Records (CRUD + agregações)
+# Study Records
 # ------------------------------------------------------------------------------
 
 def create_study_record(
@@ -261,7 +272,7 @@ def create_study_record(
     try:
         with engine.begin() as conn:
             row = conn.execute(sql, params).mappings().fetchone()
-            return int(row["id"]) if row and "id" in row else 0
+            rid = int(row["id"]) if row and "id" in row else 0
     except Exception:
         if _is_sqlite():
             with engine.begin() as conn:
@@ -272,17 +283,22 @@ def create_study_record(
                         (:uid, :sdate, :cat, :subj, :top, :dur, :hit, :mis, :pstart, :pend, :comm)
                 """), params)
                 rid = conn.execute(text("SELECT last_insert_rowid() AS id")).mappings().fetchone()
-                return int(rid["id"])
-        raise
-
+                rid = int(rid["id"])
+        else:
+            raise
+    _clear_cache()
+    return rid
 
 def delete_study_record(record_id: int, user_id: int) -> bool:
+    ok = False
     with engine.begin() as conn:
         res = conn.execute(text(
             "DELETE FROM study_records WHERE id = :rid AND user_id = :uid"
         ), {"rid": int(record_id), "uid": int(user_id)})
-        return (res.rowcount or 0) > 0
-
+        ok = (res.rowcount or 0) > 0
+    if ok:
+        _clear_cache()
+    return ok
 
 def get_study_records_by_user(user_id: int) -> List[Dict[str, Any]]:
     with engine.connect() as conn:
@@ -294,6 +310,9 @@ def get_study_records_by_user(user_id: int) -> List[Dict[str, Any]]:
         """), {"uid": int(user_id)}).mappings().fetchall()
         return [dict(r) for r in rows]
 
+# ------------------------------------------------------------------------------
+# Agregações / Relatórios
+# ------------------------------------------------------------------------------
 
 def get_study_presence_since_signup(user_id: int) -> list[dict]:
     with engine.connect() as conn:
@@ -302,7 +321,6 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
         ), {"uid": int(user_id)}).mappings().fetchone()
         if not row or not row["created_date"]:
             return []
-
         start_iso = _date_to_iso(row["created_date"])
         start = datetime.strptime(start_iso, "%Y-%m-%d").date()
         end = date.today()
@@ -320,7 +338,6 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
             "end": end.isoformat()
         }).mappings().fetchall()
 
-        # 🔑 chaves SEMPRE string ISO
         totals = {_date_to_iso(r["study_date"]): int((r["total_sec"] or 0) // 60) for r in totals_rows}
 
     days = (end - start).days + 1
@@ -330,7 +347,6 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
         mins = totals.get(d, 0)
         out.append({"date": d, "minutes": mins, "has_study": mins > 0})
     return out
-
 
 def get_total_minutes_by_date_range(user_id: int, start_date: str, end_date: str) -> dict[str, int]:
     with engine.connect() as conn:
@@ -342,7 +358,6 @@ def get_total_minutes_by_date_range(user_id: int, start_date: str, end_date: str
             GROUP BY study_date
         """), {"uid": int(user_id), "start": start_date, "end": end_date}).mappings().fetchall()
         return {_date_to_iso(r["study_date"]): int((r["total_sec"] or 0) // 60) for r in rows}
-
 
 def get_questions_breakdown_by_date_range(user_id: int, start_date: str, end_date: str) -> dict[str, dict[str, int]]:
     with engine.connect() as conn:
@@ -365,7 +380,6 @@ def get_questions_breakdown_by_date_range(user_id: int, start_date: str, end_dat
             }
         return out
 
-
 def get_day_subject_breakdown(user_id: int, day_iso: str) -> list[dict]:
     with engine.connect() as conn:
         rows = conn.execute(text("""
@@ -376,7 +390,6 @@ def get_day_subject_breakdown(user_id: int, day_iso: str) -> list[dict]:
             ORDER BY subject
         """), {"uid": int(user_id), "day": day_iso}).mappings().fetchall()
         return [{"subject": r["subject"], "total_sec": int(r["total_sec"] or 0)} for r in rows]
-
 
 def get_disciplinas_resumo(user_id: int) -> list[dict]:
     with engine.connect() as conn:
@@ -410,7 +423,6 @@ def get_disciplinas_resumo(user_id: int) -> list[dict]:
         })
     return out
 
-
 # ------------------------------------------------------------------------------
 # Weekly Goals
 # ------------------------------------------------------------------------------
@@ -423,7 +435,6 @@ def get_weekly_goal(user_id: int) -> Optional[Dict[str, int]]:
             WHERE user_id = :uid
         """), {"uid": int(user_id)}).mappings().fetchone()
         return {"target_hours": int(row["target_hours"]), "target_questions": int(row["target_questions"])} if row else None
-
 
 def upsert_weekly_goal(user_id: int, target_hours: int, target_questions: int) -> None:
     if _is_sqlite():
@@ -446,10 +457,10 @@ def upsert_weekly_goal(user_id: int, target_hours: int, target_questions: int) -
         """)
     with engine.begin() as conn:
         conn.execute(sql, {"uid": int(user_id), "th": int(target_hours), "tq": int(target_questions)})
-
+    _clear_cache()
 
 # ------------------------------------------------------------------------------
-# Subject Colors (opcional, caso seu app use)
+# Subject Colors
 # ------------------------------------------------------------------------------
 
 def get_subject_colors(user_id: int) -> dict[str, str]:
@@ -460,7 +471,6 @@ def get_subject_colors(user_id: int) -> dict[str, str]:
             WHERE user_id = :uid
         """), {"uid": int(user_id)}).mappings().fetchall()
         return {r["subject"]: r["color_hex"] for r in rows}
-
 
 def upsert_subject_color(user_id: int, subject: str, color_hex: str) -> None:
     if _is_sqlite():
@@ -481,3 +491,32 @@ def upsert_subject_color(user_id: int, subject: str, color_hex: str) -> None:
         """)
     with engine.begin() as conn:
         conn.execute(sql, {"uid": int(user_id), "subj": subject.strip(), "hex": color_hex.strip().upper()})
+    _clear_cache()
+
+# ------------------------------------------------------------------------------
+# Versões CACHEADAS para uso nas telas (reduz chamadas ao banco)
+# ------------------------------------------------------------------------------
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_user_created_date_cached(user_id: int) -> Optional[str]:
+    return get_user_created_date(user_id)
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_total_minutes_by_date_range_cached(user_id: int, start_date: str, end_date: str) -> dict[str, int]:
+    return get_total_minutes_by_date_range(user_id, start_date, end_date)
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_questions_breakdown_by_date_range_cached(user_id: int, start_date: str, end_date: str) -> dict[str, dict[str, int]]:
+    return get_questions_breakdown_by_date_range(user_id, start_date, end_date)
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_disciplinas_resumo_cached(user_id: int) -> list[dict]:
+    return get_disciplinas_resumo(user_id)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_study_records_by_user_cached(user_id: int) -> list[dict]:
+    return get_study_records_by_user(user_id)
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_study_presence_since_signup_cached(user_id: int) -> list[dict]:
+    return get_study_presence_since_signup(user_id)

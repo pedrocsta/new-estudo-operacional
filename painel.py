@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_extras.stylable_container import stylable_container
 from auth import get_current_user
-from db import get_disciplinas_resumo
+from db import get_disciplinas_resumo_cached
 from utils import fmt_horas
 
 
@@ -54,7 +54,7 @@ def render_painel():
             unsafe_allow_html=True
         )
         
-        linhas = get_disciplinas_resumo(user["id"])
+        linhas = get_disciplinas_resumo_cached(user["id"])
         if not linhas:
             st.caption("Nenhum estudo registrado ainda.")
             return

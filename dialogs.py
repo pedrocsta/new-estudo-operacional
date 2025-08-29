@@ -7,7 +7,7 @@ from streamlit_extras.stylable_container import stylable_container
 from auth import get_current_user
 from db import (
     create_study_record,
-    get_user_created_date,
+    get_user_created_date_cached,
     get_weekly_goal,          # NOVO
     upsert_weekly_goal        # NOVO
 )
@@ -24,7 +24,7 @@ def dialog_study_record():
     user = get_current_user()
     created_date = None
     if user:
-        created_date_str = get_user_created_date(user["id"])
+        created_date_str = get_user_created_date_cached(user["id"])
         if created_date_str:
             try:
                 created_date = dt.datetime.strptime(created_date_str, "%Y-%m-%d").date()
