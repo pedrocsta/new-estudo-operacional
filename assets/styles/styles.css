@@ -32,6 +32,10 @@ div[data-testid="stLayoutWrapper"] {
     height: 100%;
 }
 
+div[data-testid="stMainBlockContainer"] {
+    padding: 5rem 2rem;
+} 
+
 .st-key-avatar-button { margin-left: auto; }
 .st-key-avatar-button button{
     border-radius: 50%; 

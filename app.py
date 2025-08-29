@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import datetime
 
 from utils import local_css
 from painel import render_painel
@@ -10,11 +11,14 @@ from weekly_goal import render_weekly_goal
 from weekly_study import render_weekly_study
 from db import get_study_records_by_user, delete_study_record
 
+
 st.set_page_config(
     page_title="Estudo Operacional",
     page_icon="assets/images/logo.png",
     layout="wide"
 )
+
+st.session_state.setdefault("_compact", False)
 
 local_css()
 
@@ -38,7 +42,6 @@ with title:
         '<h2 style="font-weight:600; font-size:2rem; margin:0; padding:0;">Home</h2>',
         unsafe_allow_html=True
     )
-
 with button:
     if st.button("Adicionar Estudo", type="primary", key="adicionar-estudos"):
         dialog_study_record()
@@ -48,25 +51,27 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ===== Linha 01: CONSTÂNCIA NOS ESTUDOS (100%) =====
+# ===== Linha 01 (100%): CONSTÂNCIA NOS ESTUDOS =====
 render_streak()
 
-# ===== Linhas 02 e 03 combinadas: Esquerda empilhada / Direita ocupando a altura toda =====
-col_esq, col_dir = st.columns([3, 1])  # ajuste as proporções como preferir
+# ===== Grade principal (2 "linhas" conceituais) =====
+# Esquerda (larga) = PAINEL (ocupa "linhas" 1 e 2)
+# Meio (estreita)  = METAS (em cima) + ESTUDO SEMANAL (embaixo)
+# Direita (média)  = ESTUDOS DO DIA (ocupa "linhas" 1 e 2)
+col_left, col_mid, col_right = st.columns([2.1, 1.9, 1])
 
-with col_esq:
-    # Faixa superior da coluna esquerda
-    meta_semanal, estudo_semanal = st.columns([1, 2])
-    with meta_semanal:
-        render_weekly_goal()
-    with estudo_semanal:
-        render_weekly_study()
-
-    # Faixa inferior da coluna esquerda (ocupa toda a largura da esquerda)
+with col_left:
+    # PAINEL ocupa toda a altura da coluna esquerda
     render_painel()
 
-with col_dir:
-    # Coluna direita deve ocupar a altura inteira “ao lado” das duas faixas da esquerda
+with col_mid:
+    # Linha "de cima" da coluna do meio
+    render_weekly_goal()
+    # Linha "de baixo" da coluna do meio
+    render_weekly_study()
+
+with col_right:
+    # Ocupa a coluna direita inteira
     render_day_studies()
 
 # ===== Registros de estudo =====
@@ -79,20 +84,42 @@ if user:
         st.info("Nenhum registro encontrado.")
     else:
         for r in records:
-            with st.expander(f"{r['study_date']} • {r['category']} - {r['subject']}"):
-                ac_left, ac_right = st.columns([8, 2])
-                with ac_right:
-                    if st.button("🗑️ Excluir", key=f"delete-{r['id']}", use_container_width=True):
-                        ok = delete_study_record(r["id"], user["id"])
-                        if ok:
-                            st.toast("Registro excluído com sucesso.")
-                            st.rerun()
-                        else:
-                            st.error("Não foi possível excluir este registro.")
+            # formata data
+            try:
+                dt_br = datetime.strptime(r["study_date"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                dt_br = r["study_date"]
+            header = f"{dt_br} - {r.get('category','')}: {r.get('subject','')}"
 
-                st.write(f"**Conteúdo:** {r.get('topic') or '-'}")
-                st.write(f"**Duração:** {r['duration_sec']//3600}h {(r['duration_sec']%3600)//60}min")
-                st.write(f"**Questões:** {r.get('hits') or 0} acertos / {r.get('mistakes') or 0} erros")
-                st.write(f"**Páginas:** {r.get('page_start') or '-'} até {r.get('page_end') or '-'}")
-                st.write(f"**Comentário:** {r.get('comment') or '-'}")
+            # Cabeçalho com expander + botão lixeira alinhado à direita
+            head_left, head_right = st.columns([29, 1])
+            with head_left:
+                exp = st.expander(header)
+            with head_right:
+                if st.button("🗑️", key=f"delete-{r['id']}"):
+                    ok = delete_study_record(r["id"], user["id"])
+                    if ok:
+                        st.toast("Registro excluído com sucesso.")
+                        st.rerun()
+                    else:
+                        st.error("Não foi possível excluir este registro.")
+
+            # Conteúdo dentro do expander
+            with exp:
+                dur_h = r["duration_sec"] // 3600
+                dur_m = (r["duration_sec"] % 3600) // 60
+                st.write(f"**Duração:** {dur_h}h {dur_m}min")
+
+                if (r.get("topic") or "").strip():
+                    st.write(f"**Conteúdo:** {r['topic']}")
+
+                if (r.get("hits") or 0) > 0 or (r.get("mistakes") or 0) > 0:
+                    st.write(f"**Questões:** {r.get('hits') or 0} acertos / {r.get('mistakes') or 0} erros")
+
+                if r.get("page_start") or r.get("page_end"):
+                    st.write(f"**Páginas:** {r.get('page_start') or '-'} até {r.get('page_end') or '-'}")
+
+                if (r.get("comment") or "").strip():
+                    st.write(f"**Comentário:** {r['comment']}")
+
                 st.caption(f"Salvo em {r['created_at']}")

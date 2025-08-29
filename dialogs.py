@@ -34,14 +34,40 @@ def dialog_study_record():
     # ===== LINHA 0: Data (pills + date_input) =====
     left, right = st.columns([3, 1])
     with left:
-        modo_data = st.pills(
-            "Escolha uma data:",
-            options=["Hoje", "Ontem", "Outro"],
+        # ---------- Opção B (on_change) para os pills de data ----------
+        DATA_OPTIONS = ["Hoje", "Ontem", "Outro"]
+        DATA_DEFAULT = "Hoje"
+
+        # Guarda o último valor válido entre reruns
+        st.session_state.setdefault("_last_modo_data_registro", DATA_DEFAULT)
+
+        def _ensure_modo_data_selected():
+            cur = st.session_state.get("modo_data_registro")
+            if cur not in DATA_OPTIONS:
+                # Se o usuário "desmarca" (None), restaura o último válido
+                st.session_state["modo_data_registro"] = st.session_state["_last_modo_data_registro"]
+            else:
+                # Atualiza o último válido
+                st.session_state["_last_modo_data_registro"] = cur
+
+        # Monta kwargs sem conflitar default x session_state
+        modo_kwargs = dict(
+            label="Escolha uma data:",
+            options=DATA_OPTIONS,
             selection_mode="single",
-            default="Hoje",
             label_visibility="collapsed",
             key="modo_data_registro",
+            on_change=_ensure_modo_data_selected,
         )
+        if "modo_data_registro" not in st.session_state:
+            modo_kwargs["default"] = st.session_state["_last_modo_data_registro"]
+
+        st.pills(**modo_kwargs)
+
+        # Valor saneado (sempre um selecionado)
+        modo_data = st.session_state.get("modo_data_registro", st.session_state["_last_modo_data_registro"])
+        # ---------------------------------------------------------------------
+
     with right:
         if modo_data == "Outro":
             data_outro = st.date_input(
@@ -59,9 +85,8 @@ def dialog_study_record():
             st.session_state["study_date"] = base if modo_data == "Hoje" else base - dt.timedelta(days=1)
 
             # Se a data calculada (Hoje/ Ontem) ficar ANTES da criação da conta, força para a mínima.
-            if created_date:
-                if st.session_state["study_date"] < created_date:
-                    st.session_state["study_date"] = created_date
+            if created_date and st.session_state["study_date"] < created_date:
+                st.session_state["study_date"] = created_date
 
     # ===== Linha 01 =====
     c, d, t = st.columns([1, 2, 1])

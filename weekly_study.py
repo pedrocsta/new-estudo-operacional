@@ -31,6 +31,20 @@ def render_weekly_study():
     if not user:
         return
 
+    # -------------------- Config. de Pills (Opção B) --------------------
+    OPTIONS = ["TEMPO", "QUESTÕES"]
+    DEFAULT_PILL = "TEMPO"
+
+    # Garante um "último válido" desde o primeiro run
+    st.session_state.setdefault("_last_pill_semana", DEFAULT_PILL)
+
+    # Antes de renderizar qualquer coisa, clamp do valor atual para evitar None
+    current_sel = st.session_state.get("pill-semana", st.session_state["_last_pill_semana"])
+    if current_sel not in OPTIONS:
+        current_sel = st.session_state["_last_pill_semana"]
+        st.session_state["pill-semana"] = current_sel  # mantém consistência de estado
+    # -------------------------------------------------------------------
+
     today = dt.date.today()
 
     created = None
@@ -92,7 +106,7 @@ def render_weekly_study():
         """
     ):
         # ---- Título + navegação ----
-        titulo, butao = st.columns([2, 1.25])
+        titulo, butao = st.columns([1, 1])
         with titulo:
             st.markdown(
                 "<h2 style='font-weight:600; font-size:1.1rem; margin:0; padding:0;'>ESTUDOS SEMANAL</h2>",
@@ -131,7 +145,7 @@ def render_weekly_study():
             key="estudo-semanasasal",
             css_styles="""
             {
-                padding: 0 30px 30px 30px;
+                padding: 5px 0 15px 0;
             }
             """
         ):
@@ -142,10 +156,11 @@ def render_weekly_study():
                 week_dates = [sunday + timedelta(days=i) for i in range(7)]
                 week_keys = [d.strftime("%Y-%m-%d") for d in week_dates]
 
-                sel = st.session_state.get("pill-semana", "TEMPO")
+                # Valor SEMPRE saneado (garantido acima)
+                sel = current_sel
 
                 # Altura usada nos dois gráficos (e na conversão px -> unidades do eixo Y)
-                CHART_HEIGHT = 200
+                CHART_HEIGHT = 180 if st.session_state.get("_compact") else 200
 
                 if sel == "TEMPO":
                     totals_dict = get_total_minutes_by_date_range(user["id"], week_keys[0], week_keys[-1])
@@ -194,7 +209,7 @@ def render_weekly_study():
                             tooltip=[alt.Tooltip("tooltip:N", title="Tempo:")],
                         )
                         .add_params(hover_time)
-                        .properties(height=CHART_HEIGHT, padding={"left": 0, "right": 50, "top": 0, "bottom": 0})
+                        .properties(height=CHART_HEIGHT, padding={"left": 0, "right": 10, "top": 0, "bottom": 0})
                         .configure_view(stroke=None, fill="#1A1A1A")
                         .configure(background="#1A1A1A")
                     )
@@ -283,18 +298,27 @@ def render_weekly_study():
                     )
 
                     chart = (bars + labels).properties(
-                        height=CHART_HEIGHT, padding={"left": 0, "right": 50, "top": 0, "bottom": 0}
+                        height=CHART_HEIGHT, padding={"left": 0, "right": 10, "top": 0, "bottom": 0}
                     ).configure_view(stroke=None, fill="#1A1A1A"
                     ).configure(background="#1A1A1A")
 
                 st.altair_chart(chart, use_container_width=True)
 
             with acoes:
-                sel = st.pills(
+                # Função de validação do estado (Opção B)
+                def _ensure_pill_selected():
+                    cur = st.session_state.get("pill-semana")
+                    if cur not in OPTIONS:
+                        st.session_state["pill-semana"] = st.session_state["_last_pill_semana"]
+                    else:
+                        st.session_state["_last_pill_semana"] = cur
+
+                st.pills(
                     label="Escolha um tipo de gráfico:",
-                    options=["TEMPO", "QUESTÕES"],
+                    options=OPTIONS,
                     selection_mode="single",
-                    default="TEMPO",
+                    default=st.session_state["_last_pill_semana"],
                     label_visibility="collapsed",
-                    key="pill-semana"
+                    key="pill-semana",
+                    on_change=_ensure_pill_selected,
                 )
