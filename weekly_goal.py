@@ -86,7 +86,7 @@ def render_weekly_goal():
 
         goal = get_weekly_goal(user["id"])
         if not goal:
-            st.info("Nenhuma meta definida ainda. Clique no botão acima para criar uma.")
+            st.caption("Nenhum estudo registrado ainda.")
             return
 
         # --- Semana atual: segunda até domingo ---
