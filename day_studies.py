@@ -99,7 +99,7 @@ def render_day_studies():
             .ds-label{white-space:nowrap;}
             .ds-line{flex:1;height:1px;background:#3a3a3a;opacity:.7;margin:0 8px;}
             .ds-value{color:#EDEDED;font-weight:600;white-space:nowrap;}
-            .ds-empty-msg{flex:1;text-align:center;font-weight:600;opacity:.8;}
+            .ds-empty-msg{flex:1;text-align:center;font-weight:400;opacity:.8;}
         }
         """
     ):
@@ -213,7 +213,7 @@ def render_day_studies():
         if not rows_real and placeholders:
             # primeira linha especial de mensagem
             placeholders[0] = {
-                "subject": "Sem estudos cadastrados neste dia.",
+                "subject": "Nenhum estudo registrado ainda.",
                 "minutes": None,
                 "color": "#1A1A1A",
                 "is_msg": True
