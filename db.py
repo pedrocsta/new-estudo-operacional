@@ -1,27 +1,66 @@
-# db.py — versão compatível com PostgreSQL (Supabase) e fallback para SQLite
+# db.py — versão compatível com PostgreSQL (Supabase Pooler via psycopg v3) e fallback para SQLite
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+# ------------------------------------------------------------------------------
+# Configuração da conexão
+# - Em produção (Streamlit Cloud), use o secrets: DATABASE_URL
+#   Exemplo (Supabase Transaction Pooler, IPv4):
+#   postgresql+psycopg://<user>:<password>@aws-1-sa-east-1.pooler.supabase.com:6543/postgres
+# - Em desenvolvimento, cai para SQLite local.
+# ------------------------------------------------------------------------------
+
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///studies.db")
 
-# se for Postgres sem driver explícito, troca para psycopg (v3)
+# Garante driver psycopg se a URL vier sem ele
 if DB_URL.startswith("postgresql://"):
     DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-
-# Cria o engine (pool_pre_ping ajuda a reciclar conexões "mortas" na nuvem)
 engine: Engine = create_engine(DB_URL, pool_pre_ping=True, future=True)
+
 
 def _is_sqlite() -> bool:
     return engine.dialect.name == "sqlite"
 
-# ------------------------------- Schema -------------------------------- #
+
+# ------------------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------------------
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if not row:
+        return None
+    d = dict(row)
+    # Ajuste para Postgres: BYTEA pode vir como memoryview
+    if "password_hash" in d and isinstance(d["password_hash"], memoryview):
+        d["password_hash"] = bytes(d["password_hash"])
+    return d
+
+
+def _date_to_iso(v) -> Optional[str]:
+    """Converte date/datetime/str -> 'YYYY-MM-DD' (string) ou None."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v[:10]
+    if isinstance(v, date):  # inclui datetime (subclasse)
+        return v.isoformat()
+    try:
+        # fallback: tenta converter para string e cortar
+        return str(v)[:10]
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------------------
+# Criação de Schema
+# ------------------------------------------------------------------------------
 
 def init_db() -> None:
     """
@@ -131,18 +170,10 @@ def init_db() -> None:
         for stmt in ddl:
             conn.execute(text(stmt))
 
-# ------------------------------- Helpers -------------------------------- #
 
-def _row_to_dict(row) -> Optional[Dict[str, Any]]:
-    if not row:
-        return None
-    d = dict(row)
-    # Ajuste para Postgres: BYTEA pode vir como memoryview
-    if "password_hash" in d and isinstance(d["password_hash"], memoryview):
-        d["password_hash"] = bytes(d["password_hash"])
-    return d
-
-# ------------------------------- Users ---------------------------------- #
+# ------------------------------------------------------------------------------
+# Users
+# ------------------------------------------------------------------------------
 
 def create_user(first_name: str, last_name: str, email: str, password_hash: bytes) -> int:
     sql = text("""
@@ -150,7 +181,6 @@ def create_user(first_name: str, last_name: str, email: str, password_hash: byte
         VALUES (:fn, :ln, :em, :ph)
         RETURNING id
     """)
-    # Em SQLite, RETURNING existe nas versões novas; se falhar, fazemos SELECT last_insert_rowid()
     try:
         with engine.begin() as conn:
             res = conn.execute(sql, {"fn": first_name.strip(), "ln": last_name.strip(),
@@ -169,11 +199,12 @@ def create_user(first_name: str, last_name: str, email: str, password_hash: byte
                 rid = conn.execute(text("SELECT last_insert_rowid() AS id")).mappings().fetchone()
                 return int(rid["id"])
         raise
-    # fallback defensivo
+    # fallback
     with engine.connect() as conn:
         row = conn.execute(text("SELECT id FROM users WHERE email=:em"),
                            {"em": email.strip().lower()}).mappings().fetchone()
         return int(row["id"]) if row else 0
+
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with engine.connect() as conn:
@@ -181,7 +212,18 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
                            {"em": email.strip().lower()}).mappings().fetchone()
         return _row_to_dict(row)
 
-# ---------------------------- Study Records ----------------------------- #
+
+def get_user_created_date(user_id: int) -> Optional[str]:
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT DATE(created_at) AS created_date FROM users WHERE id = :uid"
+        ), {"uid": int(user_id)}).mappings().fetchone()
+        return _date_to_iso(row["created_date"]) if row and row["created_date"] else None
+
+
+# ------------------------------------------------------------------------------
+# Study Records (CRUD + agregações)
+# ------------------------------------------------------------------------------
 
 def create_study_record(
     user_id: int,
@@ -233,15 +275,16 @@ def create_study_record(
                 return int(rid["id"])
         raise
 
+
 def delete_study_record(record_id: int, user_id: int) -> bool:
     with engine.begin() as conn:
         res = conn.execute(text(
             "DELETE FROM study_records WHERE id = :rid AND user_id = :uid"
         ), {"rid": int(record_id), "uid": int(user_id)})
-        # Em alguns drivers, rowcount pode ser -1; garantimos bool assim:
         return (res.rowcount or 0) > 0
 
-def get_study_records_by_user(user_id: int):
+
+def get_study_records_by_user(user_id: int) -> List[Dict[str, Any]]:
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT *
@@ -251,14 +294,6 @@ def get_study_records_by_user(user_id: int):
         """), {"uid": int(user_id)}).mappings().fetchall()
         return [dict(r) for r in rows]
 
-# ------------------------------ Summaries ------------------------------- #
-
-def get_user_created_date(user_id: int) -> Optional[str]:
-    with engine.connect() as conn:
-        row = conn.execute(text(
-            "SELECT DATE(created_at) AS created_date FROM users WHERE id = :uid"
-        ), {"uid": int(user_id)}).mappings().fetchone()
-        return row["created_date"] if row and row["created_date"] else None
 
 def get_study_presence_since_signup(user_id: int) -> list[dict]:
     with engine.connect() as conn:
@@ -268,7 +303,8 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
         if not row or not row["created_date"]:
             return []
 
-        start = datetime.strptime(row["created_date"], "%Y-%m-%d").date()
+        start_iso = _date_to_iso(row["created_date"])
+        start = datetime.strptime(start_iso, "%Y-%m-%d").date()
         end = date.today()
 
         q = text("""
@@ -283,7 +319,9 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
             "start": start.isoformat(),
             "end": end.isoformat()
         }).mappings().fetchall()
-        totals = {r["study_date"]: int((r["total_sec"] or 0) // 60) for r in totals_rows}
+
+        # 🔑 chaves SEMPRE string ISO
+        totals = {_date_to_iso(r["study_date"]): int((r["total_sec"] or 0) // 60) for r in totals_rows}
 
     days = (end - start).days + 1
     out = []
@@ -292,6 +330,7 @@ def get_study_presence_since_signup(user_id: int) -> list[dict]:
         mins = totals.get(d, 0)
         out.append({"date": d, "minutes": mins, "has_study": mins > 0})
     return out
+
 
 def get_total_minutes_by_date_range(user_id: int, start_date: str, end_date: str) -> dict[str, int]:
     with engine.connect() as conn:
@@ -302,7 +341,8 @@ def get_total_minutes_by_date_range(user_id: int, start_date: str, end_date: str
               AND study_date BETWEEN :start AND :end
             GROUP BY study_date
         """), {"uid": int(user_id), "start": start_date, "end": end_date}).mappings().fetchall()
-        return {r["study_date"]: int((r["total_sec"] or 0) // 60) for r in rows}
+        return {_date_to_iso(r["study_date"]): int((r["total_sec"] or 0) // 60) for r in rows}
+
 
 def get_questions_breakdown_by_date_range(user_id: int, start_date: str, end_date: str) -> dict[str, dict[str, int]]:
     with engine.connect() as conn:
@@ -318,11 +358,25 @@ def get_questions_breakdown_by_date_range(user_id: int, start_date: str, end_dat
         """), {"uid": int(user_id), "start": start_date, "end": end_date}).mappings().fetchall()
         out: dict[str, dict[str, int]] = {}
         for r in rows:
-            out[r["study_date"]] = {
+            k = _date_to_iso(r["study_date"])
+            out[k] = {
                 "hits": int(r["total_hits"] or 0),
                 "mistakes": int(r["total_mistakes"] or 0),
             }
         return out
+
+
+def get_day_subject_breakdown(user_id: int, day_iso: str) -> list[dict]:
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT subject, COALESCE(SUM(duration_sec), 0) AS total_sec
+            FROM study_records
+            WHERE user_id = :uid AND study_date = :day
+            GROUP BY subject
+            ORDER BY subject
+        """), {"uid": int(user_id), "day": day_iso}).mappings().fetchall()
+        return [{"subject": r["subject"], "total_sec": int(r["total_sec"] or 0)} for r in rows]
+
 
 def get_disciplinas_resumo(user_id: int) -> list[dict]:
     with engine.connect() as conn:
@@ -356,18 +410,10 @@ def get_disciplinas_resumo(user_id: int) -> list[dict]:
         })
     return out
 
-def get_day_subject_breakdown(user_id: int, day_iso: str) -> list[dict]:
-    with engine.connect() as conn:
-        rows = conn.execute(text("""
-            SELECT subject, COALESCE(SUM(duration_sec), 0) AS total_sec
-            FROM study_records
-            WHERE user_id = :uid AND study_date = :day
-            GROUP BY subject
-            ORDER BY subject
-        """), {"uid": int(user_id), "day": day_iso}).mappings().fetchall()
-        return [{"subject": r["subject"], "total_sec": int(r["total_sec"] or 0)} for r in rows]
 
-# --------------------------- Weekly Goals ------------------------------- #
+# ------------------------------------------------------------------------------
+# Weekly Goals
+# ------------------------------------------------------------------------------
 
 def get_weekly_goal(user_id: int) -> Optional[Dict[str, int]]:
     with engine.connect() as conn:
@@ -377,6 +423,7 @@ def get_weekly_goal(user_id: int) -> Optional[Dict[str, int]]:
             WHERE user_id = :uid
         """), {"uid": int(user_id)}).mappings().fetchone()
         return {"target_hours": int(row["target_hours"]), "target_questions": int(row["target_questions"])} if row else None
+
 
 def upsert_weekly_goal(user_id: int, target_hours: int, target_questions: int) -> None:
     if _is_sqlite():
@@ -389,7 +436,6 @@ def upsert_weekly_goal(user_id: int, target_hours: int, target_questions: int) -
                 updated_at=CURRENT_TIMESTAMP
         """)
     else:
-        # Em Postgres usamos UPSERT com ON CONFLICT
         sql = text("""
             INSERT INTO weekly_goals (user_id, target_hours, target_questions)
             VALUES (:uid, :th, :tq)
@@ -401,7 +447,10 @@ def upsert_weekly_goal(user_id: int, target_hours: int, target_questions: int) -
     with engine.begin() as conn:
         conn.execute(sql, {"uid": int(user_id), "th": int(target_hours), "tq": int(target_questions)})
 
-# --------------------------- Subject Colors ----------------------------- #
+
+# ------------------------------------------------------------------------------
+# Subject Colors (opcional, caso seu app use)
+# ------------------------------------------------------------------------------
 
 def get_subject_colors(user_id: int) -> dict[str, str]:
     with engine.connect() as conn:
@@ -411,6 +460,7 @@ def get_subject_colors(user_id: int) -> dict[str, str]:
             WHERE user_id = :uid
         """), {"uid": int(user_id)}).mappings().fetchall()
         return {r["subject"]: r["color_hex"] for r in rows}
+
 
 def upsert_subject_color(user_id: int, subject: str, color_hex: str) -> None:
     if _is_sqlite():
