@@ -8,9 +8,12 @@ from datetime import datetime, date, timedelta
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-# Lê a URL do banco do ambiente (Streamlit Secrets -> DATABASE_URL).
-# Fallback: SQLite local para desenvolvimento.
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///studies.db")
+
+# se for Postgres sem driver explícito, troca para psycopg (v3)
+if DB_URL.startswith("postgresql://"):
+    DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
 
 # Cria o engine (pool_pre_ping ajuda a reciclar conexões "mortas" na nuvem)
 engine: Engine = create_engine(DB_URL, pool_pre_ping=True, future=True)
