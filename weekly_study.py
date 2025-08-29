@@ -7,9 +7,9 @@ from streamlit_extras.stylable_container import stylable_container
 
 from auth import get_current_user
 from db import (
-    get_user_created_date_cached,
-    get_total_minutes_by_date_range_cached,
-    get_questions_breakdown_by_date_range_cached
+    get_user_created_date,
+    get_total_minutes_by_date_range,
+    get_questions_breakdown_by_date_range,  # novo
 )
 from utils import week_range_starting_sunday, fmt_horas
 
@@ -49,7 +49,7 @@ def render_weekly_study():
 
     created = None
     if user:
-        created_str = get_user_created_date_cached(user["id"])
+        created_str = get_user_created_date(user["id"])
         if created_str:
             try:
                 created = dt.datetime.strptime(created_str, "%Y-%m-%d").date()
@@ -163,7 +163,7 @@ def render_weekly_study():
                 CHART_HEIGHT = 180 if st.session_state.get("_compact") else 200
 
                 if sel == "TEMPO":
-                    totals_dict = get_total_minutes_by_date_range_cached(user["id"], week_keys[0], week_keys[-1])
+                    totals_dict = get_total_minutes_by_date_range(user["id"], week_keys[0], week_keys[-1])
                     minutos = [totals_dict.get(k, 0) for k in week_keys]
                     horas = [m / 60.0 for m in minutos]
                     tempo_fmt = [fmt_horas(m) for m in minutos]
@@ -215,7 +215,7 @@ def render_weekly_study():
                     )
 
                 else:
-                    brk = get_questions_breakdown_by_date_range_cached(user["id"], week_keys[0], week_keys[-1])
+                    brk = get_questions_breakdown_by_date_range(user["id"], week_keys[0], week_keys[-1])
 
                     hits = [brk.get(k, {}).get("hits", 0) for k in week_keys]
                     mistakes = [brk.get(k, {}).get("mistakes", 0) for k in week_keys]

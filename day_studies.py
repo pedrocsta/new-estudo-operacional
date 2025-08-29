@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from auth import get_current_user
 from utils import fmt_horas
 from db import (
-    get_user_created_date_cached,
+    get_user_created_date,
     get_day_subject_breakdown,
     get_subject_colors,
     upsert_subject_color,
@@ -51,7 +51,7 @@ def render_day_studies():
 
     created = None
     if user:
-        created_str = get_user_created_date_cached(user["id"])
+        created_str = get_user_created_date(user["id"])
         if created_str:
             try:
                 created = dt.datetime.strptime(created_str, "%Y-%m-%d").date()
