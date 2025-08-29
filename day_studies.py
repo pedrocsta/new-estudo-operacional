@@ -224,7 +224,7 @@ def render_day_studies():
         html_rows = ''.join(
             (
                 f'<div class="ds-row">'
-                f'{"<div class=\'ds-empty-msg\' style=\'flex:1;text-align:center;font-weight:700;opacity:.8;\'>"
+                f'{"<div class=\'ds-empty-msg\' style=\'flex:1;text-align:center;font-weight:400;opacity:.8;\'>"
                    + r["subject"] + "</div>" if r.get("is_msg") else 
                    f"<span class=\'ds-dot\' style=\'background:{r['color']};\'></span>"
                    f"<span class=\'ds-label\'>{r['subject'] if r['subject'] else '&nbsp;'}</span>"
